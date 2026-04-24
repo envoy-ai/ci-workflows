@@ -2,15 +2,6 @@
 
 Shared reusable GitHub Actions workflows for EnvoyAI repositories.
 
-## Repository Settings (configure after creating on GitHub)
-
-This repo is **public** so other private EnvoyAI repos can reference its workflows. Lock it down:
-
-- **Settings > General**: Disable Issues, Wiki, Discussions, Projects
-- **Settings > Collaborators**: No outside collaborators. Only `@envoy-ai/developers` team.
-- **Settings > Branches > `main`**: Require PR with 1 approval, require CODEOWNERS review, no direct push
-- **Settings > Actions > General**: Set "Fork pull request workflows" to "Require approval for all outside collaborators"
-
 ## Workflows
 
 ### `reusable-release-please.yml`
