@@ -1,0 +1,44 @@
+name: Release Please
+
+on:
+  workflow_call:
+    inputs:
+      release-type:
+        description: "Release type (python or node)"
+        required: true
+        type: string
+      config-file:
+        description: "Path to release-please-config.json"
+        required: false
+        type: string
+        default: "release-please-config.json"
+      manifest-file:
+        description: "Path to .release-please-manifest.json"
+        required: false
+        type: string
+        default: ".release-please-manifest.json"
+    outputs:
+      release_created:
+        description: "Whether a release was created"
+        value: ${{ jobs.release-please.outputs.release_created }}
+      tag_name:
+        description: "The tag name of the release"
+        value: ${{ jobs.release-please.outputs.tag_name }}
+      version:
+        description: "The version of the release"
+        value: ${{ jobs.release-please.outputs.version }}
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+      version: ${{ steps.release.outputs.version }}
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          release-type: ${{ inputs.release-type }}
+          config-file: ${{ inputs.config-file }}
+          manifest-file: ${{ inputs.manifest-file }}

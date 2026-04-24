@@ -1,0 +1,35 @@
+name: PR Title Check
+
+on:
+  workflow_call:
+    inputs:
+      require-scope:
+        description: "Whether to require a scope in the PR title"
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  pr-title:
+    name: Validate PR Title
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          requireScope: ${{ inputs.require-scope }}
+          types: |
+            feat
+            fix
+            chore
+            docs
+            style
+            refactor
+            perf
+            test
+            ci
+            build
+            revert
+          subjectPattern: ^.+$
+          subjectPatternError: "PR title must have a subject after the type prefix."
