@@ -2,34 +2,30 @@ name: PR Title Check
 
 on:
   workflow_call:
-    inputs:
-      require-scope:
-        description: "Whether to require a scope in the PR title"
-        required: false
-        type: boolean
-        default: false
 
 jobs:
   pr-title:
     name: Validate PR Title
     runs-on: ubuntu-latest
     steps:
-      - uses: amannn/action-semantic-pull-request@v5
+      - name: Check conventional commit format
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          requireScope: ${{ inputs.require-scope }}
-          types: |
-            feat
-            fix
-            chore
-            docs
-            style
-            refactor
-            perf
-            test
-            ci
-            build
-            revert
-          subjectPattern: ^.+$
-          subjectPatternError: "PR title must have a subject after the type prefix."
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          PATTERN='^(feat|fix|chore|docs|style|refactor|perf|test|ci|build|revert)(\(.+\))?!?: .+'
+          if [[ ! "$PR_TITLE" =~ $PATTERN ]]; then
+            echo "::error::PR title must follow conventional commit format."
+            echo ""
+            echo "Expected: type(optional-scope): description"
+            echo "Got:      $PR_TITLE"
+            echo ""
+            echo "Valid types: feat, fix, chore, docs, style, refactor, perf, test, ci, build, revert"
+            echo ""
+            echo "Examples:"
+            echo "  feat: add carrier search by MC number"
+            echo "  fix(voice): prevent duplicate SIP trunk creation"
+            echo "  chore: upgrade FastAPI to 0.115"
+            echo "  feat!: redesign workflow execution API"
+            exit 1
+          fi
+          echo "PR title is valid: $PR_TITLE"
