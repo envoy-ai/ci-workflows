@@ -9,6 +9,9 @@ on:
         type: boolean
         default: false
 
+permissions:
+  pull-requests: read
+
 jobs:
   pr-title:
     name: Validate PR Title
