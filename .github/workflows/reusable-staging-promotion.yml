@@ -1,0 +1,92 @@
+name: Reusable Staging Promotion
+
+# Opens (or updates) a PR promoting `head-branch` into `base-branch` on a
+# schedule. Used to nudge development → staging daily so changes don't
+# pile up between releases.
+#
+# `peter-evans/create-pull-request` dedupes by (base, head), so if a PR
+# is already open for the same pair (e.g. one opened by release-please)
+# this would clobber its title/body. To prevent that, the workflow can
+# skip when an existing PR's title starts with `skip-if-title-prefix`.
+
+on:
+  workflow_call:
+    inputs:
+      head-branch:
+        description: "Branch to promote from"
+        required: false
+        type: string
+        default: development
+      base-branch:
+        description: "Branch to promote into"
+        required: false
+        type: string
+        default: staging
+      title:
+        description: "Title for the promotion PR"
+        required: false
+        type: string
+        default: "chore: promote development to staging"
+      body:
+        description: "Body for the promotion PR"
+        required: false
+        type: string
+        default: |
+          Automated daily promotion of `development` → `staging`.
+      labels:
+        description: "Comma-separated labels to apply to the PR"
+        required: false
+        type: string
+        default: "automated,staging-promotion"
+      skip-if-title-prefix:
+        description: >-
+          If an open PR exists with the same (base, head) and a title starting
+          with this prefix, skip opening/updating the promotion PR. Set empty
+          to disable the check.
+        required: false
+        type: string
+        default: "release:"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  open-promotion-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Skip when a release-please (or other) PR has already been opened
+      # for the same head→base, so we don't clobber its title/body.
+      - name: Check for existing PR matching skip prefix
+        id: check
+        if: inputs.skip-if-title-prefix != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PREFIX: ${{ inputs.skip-if-title-prefix }}
+        run: |
+          existing=$(gh pr list \
+            --base "${{ inputs.base-branch }}" \
+            --head "${{ inputs.head-branch }}" \
+            --state open \
+            --json title \
+            --jq ".[] | select(.title | startswith(\"$PREFIX\")) | .title" \
+            | head -n1)
+          if [ -n "$existing" ]; then
+            echo "Found PR matching prefix '$PREFIX': $existing — skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.check.outputs.skip != 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          base: ${{ inputs.base-branch }}
+          branch: ${{ inputs.head-branch }}
+          title: ${{ inputs.title }}
+          body: ${{ inputs.body }}
+          labels: ${{ inputs.labels }}

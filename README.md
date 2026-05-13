@@ -30,6 +30,44 @@ jobs:
       release-type: python
 ```
 
+### `reusable-staging-promotion.yml`
+
+Opens (or updates) a PR promoting one branch into another on a schedule. Designed for `development` → `staging` nudges between release cuts, but parameterized so it can promote any pair.
+
+Uses [peter-evans/create-pull-request](https://github.com/peter-evans/create-pull-request). Because that action dedupes by `(base, head)`, the workflow includes a skip check: if an open PR already exists for the same pair and its title starts with `skip-if-title-prefix` (default `release:`), the daily run is a no-op so it doesn't clobber a release-please PR.
+
+**Inputs:** (all optional)
+
+- `head-branch` (default `development`)
+- `base-branch` (default `staging`)
+- `title` (default `chore: promote development to staging`)
+- `body` (default: short automated-promotion note)
+- `labels` (default `automated,staging-promotion`)
+- `skip-if-title-prefix` (default `release:`; set empty to disable)
+
+**Caller responsibilities:**
+
+- Define the cron / `workflow_dispatch` trigger in the caller.
+- Create the labels referenced by `labels` in each consuming repo:
+  ```bash
+  gh label create automated --color ededed --description "Opened by automation"
+  gh label create staging-promotion --color 0e8a16 --description "development → staging promotion"
+  ```
+
+**Usage:**
+
+```yaml
+name: Daily Staging Promotion
+on:
+  schedule:
+    - cron: "0 16 * * 1-5"  # 9am PDT / 8am PST; UTC drifts ±1h across DST
+  workflow_dispatch:
+
+jobs:
+  promote:
+    uses: envoy-ai/ci-workflows/.github/workflows/reusable-staging-promotion.yml@main
+```
+
 ### `reusable-pr-title-check.yml`
 
 Validates PR titles match [Conventional Commits](https://www.conventionalcommits.org/) format using [amannn/action-semantic-pull-request](https://github.com/amannn/action-semantic-pull-request).
