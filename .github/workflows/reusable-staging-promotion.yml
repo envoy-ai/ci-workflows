@@ -82,11 +82,31 @@ jobs:
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - if: steps.check.outputs.skip != 'true'
-        uses: peter-evans/create-pull-request@v7
-        with:
-          base: ${{ inputs.base-branch }}
-          branch: ${{ inputs.head-branch }}
-          title: ${{ inputs.title }}
-          body: ${{ inputs.body }}
-          labels: ${{ inputs.labels }}
+      - name: Open promotion PR
+        if: steps.check.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ inputs.base-branch }}
+          HEAD: ${{ inputs.head-branch }}
+          TITLE: ${{ inputs.title }}
+          BODY: ${{ inputs.body }}
+          LABELS: ${{ inputs.labels }}
+        run: |
+          ahead=$(git rev-list --count "origin/${BASE}..origin/${HEAD}")
+          if [ "$ahead" -eq 0 ]; then
+            echo "No commits on ${HEAD} ahead of ${BASE} — nothing to promote."
+            exit 0
+          fi
+
+          existing=$(gh pr list --base "$BASE" --head "$HEAD" --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            echo "PR #${existing} already open for ${HEAD} → ${BASE} — leaving it alone."
+            exit 0
+          fi
+
+          gh pr create \
+            --base "$BASE" \
+            --head "$HEAD" \
+            --title "$TITLE" \
+            --body "$BODY" \
+            --label "$LABELS"
