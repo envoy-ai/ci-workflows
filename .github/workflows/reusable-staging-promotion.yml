@@ -55,9 +55,29 @@ jobs:
   open-promotion-pr:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
+
+      # Validate branch inputs before passing to git/gh. Refnames in this
+      # workflow are controlled by callers, but pinning the allowed alphabet
+      # to standard git refname characters rules out flag-injection or
+      # shell-metacharacter surprises if a future caller forwards an
+      # untrusted value.
+      - name: Validate branch inputs
+        env:
+          BASE: ${{ inputs.base-branch }}
+          HEAD: ${{ inputs.head-branch }}
+        run: |
+          pattern='^[A-Za-z0-9._/-]+$'
+          if [[ ! "$BASE" =~ $pattern ]]; then
+            echo "::error::base-branch contains disallowed characters: $BASE"
+            exit 1
+          fi
+          if [[ ! "$HEAD" =~ $pattern ]]; then
+            echo "::error::head-branch contains disallowed characters: $HEAD"
+            exit 1
+          fi
 
       # Skip when a release-please (or other) PR has already been opened
       # for the same head→base, so we don't clobber its title/body.
@@ -67,13 +87,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PREFIX: ${{ inputs.skip-if-title-prefix }}
+          BASE: ${{ inputs.base-branch }}
+          HEAD: ${{ inputs.head-branch }}
         run: |
           existing=$(gh pr list \
-            --base "${{ inputs.base-branch }}" \
-            --head "${{ inputs.head-branch }}" \
+            --base "$BASE" \
+            --head "$HEAD" \
             --state open \
             --json title \
-            --jq ".[] | select(.title | startswith(\"$PREFIX\")) | .title" \
+            | jq -r --arg prefix "$PREFIX" \
+              '.[] | select(.title | startswith($prefix)) | .title' \
             | head -n1)
           if [ -n "$existing" ]; then
             echo "Found PR matching prefix '$PREFIX': $existing — skipping."
