@@ -82,6 +82,64 @@ jobs:
     uses: envoy-ai/ci-workflows/.github/workflows/reusable-pr-title-check.yml@main
 ```
 
+## Actions
+
+### `claude-implement-ticket` (composite action)
+
+Shared tail for the Linear → Claude autonomous-PR pipeline. Runs [`anthropics/claude-code-action`](https://github.com/anthropics/claude-code-action) to implement a ticket end-to-end against repo-specific quality gates, resolves the opened PR, and posts a Slack notification to `#claude-tickets`.
+
+It is a **composite action**, not a reusable workflow, on purpose: each consumer repo's toolchain setup differs (poetry vs npm/wxt) and lives in that repo's own local composite (`setup-python-env`, `setup-build`). A reusable `workflow_call` workflow runs as its own job and cannot reuse a caller's local setup; a composite action runs _inside the caller's already-prepared job_, so the caller installs its toolchain first and this action runs the shared steps on top.
+
+**Caller responsibilities (must run before this action):**
+
+- `actions/checkout` the repo at the target base branch with the App/PAT token (not the default `GITHUB_TOKEN`, so the opened PR triggers CI).
+- Run the repo's own toolchain setup so the quality gates are runnable.
+
+**Inputs:**
+
+- `identifier` (required): human ticket id, e.g. `ENG-123`
+- `title` (required): ticket title
+- `base_branch` (required): branch to base the PR on
+- `gate_commands` (required): multiline list of quality-gate commands Claude must pass before opening the PR
+- `allowed_tools` (required): `claude-code-action --allowedTools` value
+- `anthropic_api_key` / `gh_token` / `slack_webhook_url` (required): secrets, passed in by the caller
+- `ticket_id` / `description` / `url` (optional): extra ticket context
+- `branch_prefix` (optional, default `claude/`), `model` (default `opus`), `max_turns` (default `60`)
+
+**Usage:**
+
+```yaml
+on:
+  repository_dispatch:
+    types: [linear-ticket]
+  workflow_dispatch:
+
+jobs:
+  implement:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: development
+          token: ${{ secrets.CLAUDE_AGENT_GH_TOKEN }}
+      # ... repo-specific toolchain setup here (deps installed, gates runnable) ...
+      - uses: envoy-ai/ci-workflows/.github/actions/claude-implement-ticket@main
+        with:
+          identifier: ${{ github.event.client_payload.identifier || github.event.inputs.identifier }}
+          title: ${{ github.event.client_payload.title || github.event.inputs.title }}
+          base_branch: development
+          gate_commands: |
+            - <repo lint command>
+            - <repo test command>
+          allowed_tools: Read,Edit,Write,Bash(git:*),Bash(gh pr create:*)
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          gh_token: ${{ secrets.CLAUDE_AGENT_GH_TOKEN }}
+          slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
+```
+
 ## PR Title Format
 
 Since all repos use **squash merge** with the PR title as the commit message, only the PR title needs to follow conventional commits. Individual commits inside the PR don't matter.
