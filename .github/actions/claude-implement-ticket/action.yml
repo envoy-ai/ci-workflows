@@ -1,0 +1,165 @@
+name: "Claude Implement Ticket"
+description: >-
+  Shared tail for the Linear → Claude pipeline: runs claude-code-action to
+  implement a ticket end-to-end against repo-specific quality gates, resolves
+  the opened PR, and posts a Slack notification. Toolchain setup (checkout +
+  language/deps) is the CALLER's responsibility and MUST run before this action,
+  because each consumer repo's setup diverges (poetry vs npm/wxt) and a composite
+  action runs inside the caller's already-prepared job.
+
+inputs:
+  # Ticket context (forwarded from repository_dispatch client_payload /
+  # workflow_dispatch inputs by the caller).
+  ticket_id:
+    description: "Linear issue id (UUID)"
+    required: false
+    default: ""
+  identifier:
+    description: "Human ticket identifier, e.g. ENG-123"
+    required: true
+  title:
+    description: "Ticket title"
+    required: true
+  description:
+    description: "Ticket description (markdown)"
+    required: false
+    default: ""
+  url:
+    description: "Linear ticket URL"
+    required: false
+    default: ""
+
+  # Repo-specific knobs.
+  base_branch:
+    description: "Branch to base the PR on"
+    required: true
+  branch_prefix:
+    description: "Prefix for the work branch"
+    required: false
+    default: "claude/"
+  gate_commands:
+    description: "Multiline list of the quality-gate commands Claude must pass before opening the PR"
+    required: true
+  allowed_tools:
+    description: "claude-code-action --allowedTools value"
+    required: true
+  model:
+    description: "Model for claude-code-action"
+    required: false
+    default: "opus"
+  max_turns:
+    description: "claude-code-action --max-turns"
+    required: false
+    default: "60"
+
+  # Secrets — composite actions cannot read `secrets:`, so the caller passes them
+  # in from `${{ secrets.* }}`. They live in the consumer repos, not here.
+  anthropic_api_key:
+    description: "Anthropic API key the action bills to"
+    required: true
+  gh_token:
+    description: "GitHub token (App/PAT) for checkout, gh pr create, and triggering downstream CI"
+    required: true
+  slack_webhook_url:
+    description: "Slack incoming-webhook URL for #claude-tickets"
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Implement ticket with Claude Code
+      uses: anthropics/claude-code-action@v1
+      env:
+        # The `gh` CLI Claude invokes reads GH_TOKEN; using the App/PAT (not the
+        # default GITHUB_TOKEN) is what makes the opened PR trigger downstream CI.
+        GH_TOKEN: ${{ inputs.gh_token }}
+      with:
+        anthropic_api_key: ${{ inputs.anthropic_api_key }}
+        github_token: ${{ inputs.gh_token }}
+        # SECURITY MODEL — allowedTools is NOT a sandbox. The agent runs the repo's
+        # test/build suite (Bash(poetry run|npm|npx):*) on attacker-influenceable
+        # ticket text = effective ARBITRARY CODE EXECUTION: a granted interpreter can
+        # shell out past the allowlist (including `git push`). Do not rely on
+        # allowedTools for safety. The real boundary is ENVIRONMENTAL, enforced by the
+        # caller workflow + GitHub: egress block (harden-runner, first job step), a
+        # ~1h single-repo Contents+PRs-only App token, all-dummy decrypted test
+        # secrets, and branch protection on `development` (no direct push / no bypass
+        # actor). use_commit_signing routes commits via the GitHub MCP file-ops tool —
+        # a provenance choice, NOT a containment guarantee.
+        use_commit_signing: true
+        branch_prefix: ${{ inputs.branch_prefix }}
+        claude_args: |
+          --max-turns ${{ inputs.max_turns }}
+          --model ${{ inputs.model }}
+          --allowedTools "${{ inputs.allowed_tools }}"
+        prompt: |
+          You are implementing a Linear ticket end-to-end in this repository and opening a pull request for human review. Work autonomously to an enterprise-grade bar.
+
+          TICKET ${{ inputs.identifier }} — ${{ inputs.title }}
+          Linear: ${{ inputs.url }}
+
+          Description:
+          ${{ inputs.description }}
+
+          Rules — follow exactly:
+          1. Read and follow CLAUDE.md (root and any nested CLAUDE.md in the directories you touch). Match the existing patterns, naming, and conventions already used in this codebase. Reuse existing utilities/services; do not reinvent.
+          2. Implement the ticket FULLY — no stubs, no TODOs, no placeholder no-ops on the load-bearing path. If the ticket is ambiguous or is not an engineering/code task, do NOT force a change: stop, and explain why in the PR description instead of inventing scope.
+          3. Quality gates — loop until ALL of these pass BEFORE opening the PR:
+          ${{ inputs.gate_commands }}
+             You MUST add or extend tests covering your change. Iterate until every gate above passes locally.
+          4. Open the pull request:
+               - The workflow commits your changes and pushes them to a work branch for you.
+                 Do NOT run git yourself, and never push to ${{ inputs.base_branch }} or any branch but your own work branch. Never merge.
+               - Commit/PR trailer on its own line: Co-Authored-By: Claude <noreply@anthropic.com>
+               - Open the PR against ${{ inputs.base_branch }} with gh pr create. The PR TITLE must be
+                 Conventional Commits and MUST contain the ticket id, e.g.:
+                   feat(scope): concise summary (${{ inputs.identifier }})
+               - PR body: summarize the change, how you verified it (the gates above), and link the Linear ticket: ${{ inputs.url }}
+          5. If you cannot get the gates to pass or the ticket is not safely automatable, do not open a PR; clearly explain what you tried and what blocks it.
+
+    # Resolve by ticket id in the PR title (the prompt requires it there), not by a
+    # hand-picked branch name — so it works regardless of how the action names the
+    # work branch. gh runs against this repo, so the search is implicitly repo-scoped.
+    - name: Resolve opened PR URL
+      id: pr
+      if: always()
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.gh_token }}
+        IDENTIFIER: ${{ inputs.identifier }}
+      run: |
+        url="$(gh pr list --search "${IDENTIFIER} in:title state:open" --json url --jq '.[0].url' 2>/dev/null || true)"
+        echo "url=${url}" >> "$GITHUB_OUTPUT"
+
+    # Build the message in shell (safe var interpolation), then hand it to Slack via
+    # toJSON so any quotes/newlines in the values can't corrupt the JSON payload.
+    - name: Compose Slack message
+      id: msg
+      if: always()
+      shell: bash
+      env:
+        PR_URL: ${{ steps.pr.outputs.url }}
+        TICKET_URL: ${{ inputs.url }}
+        IDENTIFIER: ${{ inputs.identifier }}
+        REPO: ${{ github.repository }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      run: |
+        if [ -n "$PR_URL" ]; then
+          text=":robot_face: Claude opened a PR for <${TICKET_URL}|${IDENTIFIER}> in ${REPO}: ${PR_URL}"
+        else
+          text=":warning: Claude run for <${TICKET_URL}|${IDENTIFIER}> in ${REPO} finished without a PR — <${RUN_URL}|see run>"
+        fi
+        {
+          echo "text<<__SLACK_EOF__"
+          echo "$text"
+          echo "__SLACK_EOF__"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: "Notify #claude-tickets"
+      if: always()
+      uses: slackapi/slack-github-action@v2
+      with:
+        webhook: ${{ inputs.slack_webhook_url }}
+        webhook-type: incoming-webhook
+        payload: |
+          { "text": ${{ toJSON(steps.msg.outputs.text) }} }
