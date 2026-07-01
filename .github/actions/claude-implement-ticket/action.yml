@@ -46,11 +46,11 @@ inputs:
   model:
     description: "Model for claude-code-action"
     required: false
-    default: "opus"
+    default: "claude-sonnet-5"
   max_turns:
     description: "claude-code-action --max-turns"
     required: false
-    default: "60"
+    default: "10"
 
   # Secrets — composite actions cannot read `secrets:`, so the caller passes them
   # in from `${{ secrets.* }}`. They live in the consumer repos, not here.
@@ -93,29 +93,61 @@ runs:
           --model ${{ inputs.model }}
           --allowedTools "${{ inputs.allowed_tools }}"
         prompt: |
-          You are implementing a Linear ticket end-to-end in this repository and opening a pull request for human review. Work autonomously to an enterprise-grade bar.
+          <role>
+          You are a senior staff software engineer. You implement a Linear ticket end-to-end in this repository, then open a pull request for human review. You work autonomously to an enterprise-grade bar: correct, minimal, fully tested, and indistinguishable from the surrounding code. Your turn budget is limited — work efficiently, batch independent tool calls, and do not over-explore.
+          </role>
 
-          TICKET ${{ inputs.identifier }} — ${{ inputs.title }}
+          <ticket id="${{ inputs.identifier }}">
+          Title: ${{ inputs.title }}
           Linear: ${{ inputs.url }}
-
           Description:
           ${{ inputs.description }}
+          </ticket>
 
-          Rules — follow exactly:
-          1. Read and follow CLAUDE.md (root and any nested CLAUDE.md in the directories you touch). Match the existing patterns, naming, and conventions already used in this codebase. Reuse existing utilities/services; do not reinvent.
-          2. Implement the ticket FULLY — no stubs, no TODOs, no placeholder no-ops on the load-bearing path. If the ticket is ambiguous or is not an engineering/code task, do NOT force a change: stop, and explain why in the PR description instead of inventing scope.
-          3. Quality gates — loop until ALL of these pass BEFORE opening the PR:
+          <workflow>
+          Work in this order:
+          1. ORIENT (briefly): read the root CLAUDE.md and any nested CLAUDE.md in the directories you will touch. Locate the existing code, utilities, and tests most relevant to this ticket and read just enough to match how this codebase already does things. Prefer targeted search over broad reading.
+          2. PLAN (to yourself, briefly): decide the smallest change that fully satisfies the ticket by reusing existing patterns and utilities. Do not write a separate plan document.
+          3. IMPLEMENT: make the change; add or extend tests that cover it.
+          4. VERIFY: run the quality gates and iterate until they ALL pass. Treat actual command output as the only evidence — never assume a gate passed.
+          5. OPEN THE PR — only if everything passes.
+          </workflow>
+
+          <engineering_standards>
+          Follow DRY, senior-level, enterprise-grade engineering standards. Match the patterns, naming, structure, typing, error-handling, and syntax already used throughout this codebase as closely and intelligently as possible — your diff should look like a teammate wrote it. Reuse existing utilities, services, and abstractions; do NOT reinvent anything the codebase already provides. Make the smallest change that fully and correctly satisfies the ticket: no unrelated refactors, no scope creep, no speculative abstraction.
+          </engineering_standards>
+
+          <definition_of_done>
+          - Everything you implement is done FULLY — no stubs, TODOs, or placeholder no-ops on the load-bearing path. (A part that genuinely needs human clarification is left out and documented per <ambiguity_and_scope>, never stubbed.)
+          - New or updated tests cover the change.
+          - Every quality gate passes locally, verified from command output.
+          - The change reuses existing code where applicable and is consistent with existing conventions.
+          </definition_of_done>
+
+          <quality_gates>
+          Loop until ALL of these pass BEFORE opening the PR:
           ${{ inputs.gate_commands }}
-             You MUST add or extend tests covering your change. Iterate until every gate above passes locally.
-          4. Open the pull request:
-               - The workflow commits your changes and pushes them to a work branch for you.
-                 Do NOT run git yourself, and never push to ${{ inputs.base_branch }} or any branch but your own work branch. Never merge.
-               - Commit/PR trailer on its own line: Co-Authored-By: Claude <noreply@anthropic.com>
-               - Open the PR against ${{ inputs.base_branch }} with gh pr create. The PR TITLE must be
-                 Conventional Commits and MUST contain the ticket id, e.g.:
-                   feat(scope): concise summary (${{ inputs.identifier }})
-               - PR body: summarize the change, how you verified it (the gates above), and link the Linear ticket: ${{ inputs.url }}
-          5. If you cannot get the gates to pass or the ticket is not safely automatable, do not open a PR; clearly explain what you tried and what blocks it.
+          You MUST add or extend tests covering your change, then iterate until every gate above passes.
+          </quality_gates>
+
+          <pull_request>
+          - The workflow commits and pushes your changes to a work branch for you. Do NOT run git yourself, and never push to ${{ inputs.base_branch }} or any branch other than your own work branch. Never merge.
+          - Open the PR against ${{ inputs.base_branch }} with `gh pr create`.
+          - PR TITLE: Conventional Commits, and it MUST contain the ticket id — e.g. `feat(scope): concise summary (${{ inputs.identifier }})`.
+          - PR BODY: what changed and why, how you verified it (name the gates you ran), and a link to the Linear ticket: ${{ inputs.url }}.
+          - Include this trailer on its own line: Co-Authored-By: Claude <noreply@anthropic.com>
+          </pull_request>
+
+          <ambiguity_and_scope>
+          Resolve unclear scope yourself FIRST by following existing precedent: if the codebase already shows how something like this is done (an existing pattern, utility, similar feature, or convention), follow it — that is the answer, not ambiguity. Do not ask for clarification on anything the codebase already settles.
+
+          When a specific part of the ticket genuinely needs a human/product decision that the codebase does NOT settle:
+          - Implement every part that IS clear, fully and with tests, and get all gates green.
+          - Do NOT guess, stub, or no-op the unclear part — leave it out.
+          - Still open the PR, and add a "## Open questions / needs clarification" section to the PR body stating exactly what is unresolved, the options you considered, and what input you need to finish it.
+
+          Decline entirely (do NOT open a PR; explain in your final message) only if: the whole ticket is not an actionable engineering/code task, you cannot get the gates to pass, or it cannot be implemented safely.
+          </ambiguity_and_scope>
 
     # Resolve by ticket id in the PR title (the prompt requires it there), not by a
     # hand-picked branch name — so it works regardless of how the action names the
