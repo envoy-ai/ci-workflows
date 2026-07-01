@@ -50,7 +50,7 @@ inputs:
   max_turns:
     description: "claude-code-action --max-turns"
     required: false
-    default: "10"
+    default: "50"
 
   # Secrets — composite actions cannot read `secrets:`, so the caller passes them
   # in from `${{ secrets.* }}`. They live in the consumer repos, not here.
