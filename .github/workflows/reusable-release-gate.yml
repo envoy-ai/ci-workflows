@@ -1,9 +1,9 @@
 name: Release Gate
 
-# Every PR into staging must carry a release-please version bump: the
-# manifest version on the PR head has to differ from the one on the base.
-# The daily promotion PR opens whether or not a release was cut, so without
-# this gate unversioned commits ride into staging.
+# A promotion PR into production must carry a release-please version bump:
+# the manifest version on the PR head has to differ from the one on the
+# base. Only promotion PRs (head = staging) are checked; hotfix PRs from a
+# feature branch skip the job, which counts as passing.
 
 on:
   workflow_call:
@@ -13,10 +13,16 @@ on:
         required: false
         type: string
         default: ".release-please-manifest.json"
+      promotion-head:
+        description: "Head branch of promotion PRs; other heads skip the check"
+        required: false
+        type: string
+        default: "staging"
 
 jobs:
   release-cut:
     name: Release cut
+    if: ${{ github.head_ref == inputs.promotion-head }}
     runs-on: ubuntu-latest
     steps:
       - name: Compare manifest versions on base and head
@@ -37,7 +43,7 @@ jobs:
           head=$(version "$HEAD_SHA")
           echo "${BASE_REF}=${base} ${HEAD_REF}=${head}"
           if [ "$base" = "$head" ]; then
-            echo "::error::No release cut since ${BASE_REF} (version ${base} on both sides). Merge the open release-please PR into ${HEAD_REF} first, then re-run."
+            echo "::error::No release cut since ${BASE_REF} (version ${base} on both sides). Merge the open release-please PR into development and promote it to ${HEAD_REF} first."
             exit 1
           fi
           echo "Release cut: ${base} -> ${head}"
