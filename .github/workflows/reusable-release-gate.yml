@@ -1,0 +1,43 @@
+name: Release Gate
+
+# Every PR into staging must carry a release-please version bump: the
+# manifest version on the PR head has to differ from the one on the base.
+# The daily promotion PR opens whether or not a release was cut, so without
+# this gate unversioned commits ride into staging.
+
+on:
+  workflow_call:
+    inputs:
+      manifest-file:
+        description: "Path to .release-please-manifest.json"
+        required: false
+        type: string
+        default: ".release-please-manifest.json"
+
+jobs:
+  release-cut:
+    name: Release cut
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compare manifest versions on base and head
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          MANIFEST: ${{ inputs.manifest-file }}
+        run: |
+          version() {
+            gh api "repos/${REPO}/contents/${MANIFEST}?ref=$1" --jq '.content' \
+              | base64 -d | jq -r '."."'
+          }
+          base=$(version "$BASE_SHA")
+          head=$(version "$HEAD_SHA")
+          echo "${BASE_REF}=${base} ${HEAD_REF}=${head}"
+          if [ "$base" = "$head" ]; then
+            echo "::error::No release cut since ${BASE_REF} (version ${base} on both sides). Merge the open release-please PR into ${HEAD_REF} first, then re-run."
+            exit 1
+          fi
+          echo "Release cut: ${base} -> ${head}"
