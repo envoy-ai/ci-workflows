@@ -163,6 +163,30 @@ jobs:
           slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
 ```
 
+## Branch Rules
+
+Where branch protection lives and how to change it. Two layers, nothing else.
+
+**Org rulesets own policy** (Settings -> Rules -> Rulesets at the org level, apply to every repo, matched by branch name so the branch layout of a repo doesn't matter):
+
+| Ruleset                                 | Branches                       | Rules                                                                                              |
+| --------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------- |
+| Default (development) branch protection | default branch + `development` | PR required, 1 approval, stale reviews dismissed on push, linear history, no force-push, no delete |
+| Staging branch protection               | `staging`                      | PR required, 0 approvals, no force-push, no delete                                                 |
+| Production branch protection            | `production`                   | PR required, 1 approval, stale reviews dismissed on push, no force-push, no delete                 |
+
+No bypass actors anywhere. Rulesets apply to admins unconditionally.
+
+**Repo rulesets own required status checks only.** One per repo per branch that has CI (`<repo> required checks (development)`, `Production required checks`). Job names in there must match the workflow job `name:` exactly; a renamed job blocks every PR on "Expected".
+
+**Classic branch protection (Settings -> Branches) is not used.** It was removed org-wide on 2026-08-25. It layers with rulesets (most restrictive wins) and silently re-imposed reviews on staging, so don't add it back. Note the Vanta test "branch protection rules are enforced for administrators" reads only classic protection and cannot see rulesets.
+
+Changing policy = edit the org ruleset. Changing checks = edit the repo ruleset. Inspect what actually applies to a branch:
+
+```bash
+gh api repos/envoy-ai/<repo>/rules/branches/<branch>
+```
+
 ## PR Title Format
 
 Since all repos use **squash merge** with the PR title as the commit message, only the PR title needs to follow conventional commits. Individual commits inside the PR don't matter.
