@@ -70,20 +70,21 @@ jobs:
 
 ### `reusable-release-gate.yml`
 
-Fails a PR into `staging` unless a release was cut since the last promotion: the `.release-please-manifest.json` version on the PR head must differ from the one on the base. The daily staging promotion opens whether or not a release landed, so this is what keeps unversioned commits out of staging.
+Fails a `staging` -> `production` promotion PR unless a release was cut since the last one: the `.release-please-manifest.json` version on the PR head must differ from the one on the base. PRs from any other head (hotfixes) skip the job, which counts as passing.
 
-Meant to be a required check on `staging` (context: `<caller job id> / Release cut`, e.g. `gate / Release cut`).
+Meant to be a required check on `production` (context: `<caller job id> / Release cut`, e.g. `gate / Release cut`).
 
 **Inputs:** (all optional)
 
 - `manifest-file`: path to `.release-please-manifest.json` (default: repo root)
+- `promotion-head`: head branch of promotion PRs (default `staging`)
 
 **Usage:**
 
 ```yaml
 on:
   pull_request:
-    branches: [staging]
+    branches: [production]
 
 jobs:
   gate:
