@@ -60,12 +60,34 @@ Uses [peter-evans/create-pull-request](https://github.com/peter-evans/create-pul
 name: Daily Staging Promotion
 on:
   schedule:
-    - cron: "0 16 * * 1-5"  # 9am PDT / 8am PST; UTC drifts ±1h across DST
+    - cron: "0 16 * * 1-5" # 9am PDT / 8am PST; UTC drifts ±1h across DST
   workflow_dispatch:
 
 jobs:
   promote:
     uses: envoy-ai/ci-workflows/.github/workflows/reusable-staging-promotion.yml@main
+```
+
+### `reusable-release-gate.yml`
+
+Fails a PR into `staging` unless a release was cut since the last promotion: the `.release-please-manifest.json` version on the PR head must differ from the one on the base. The daily staging promotion opens whether or not a release landed, so this is what keeps unversioned commits out of staging.
+
+Meant to be a required check on `staging` (context: `<caller job id> / Release cut`, e.g. `gate / Release cut`).
+
+**Inputs:** (all optional)
+
+- `manifest-file`: path to `.release-please-manifest.json` (default: repo root)
+
+**Usage:**
+
+```yaml
+on:
+  pull_request:
+    branches: [staging]
+
+jobs:
+  gate:
+    uses: envoy-ai/ci-workflows/.github/workflows/reusable-release-gate.yml@main
 ```
 
 ### `reusable-pr-title-check.yml`
