@@ -169,11 +169,13 @@ Where branch protection lives and how to change it. Two layers, nothing else.
 
 **Org rulesets own policy** (Settings -> Rules -> Rulesets at the org level, apply to every repo, matched by branch name so the branch layout of a repo doesn't matter):
 
-| Ruleset                                 | Branches                       | Rules                                                                                              |
-| --------------------------------------- | ------------------------------ | -------------------------------------------------------------------------------------------------- |
-| Default (development) branch protection | default branch + `development` | PR required, 1 approval, stale reviews dismissed on push, linear history, no force-push, no delete |
-| Staging branch protection               | `staging`                      | PR required, 0 approvals, no force-push, no delete                                                 |
-| Production branch protection            | `production`                   | PR required, 1 approval, stale reviews dismissed on push, no force-push, no delete                 |
+| Ruleset                                 | Branches                       | Rules                                                             |
+| --------------------------------------- | ------------------------------ | ----------------------------------------------------------------- |
+| Default (development) branch protection | default branch + `development` | PR required, 1 approval, linear history, no force-push, no delete |
+| Staging branch protection               | `staging`                      | PR required, 0 approvals, no force-push, no delete                |
+| Production branch protection            | `production`                   | PR required, 1 approval, no force-push, no delete                 |
+
+Approvals survive new pushes (stale reviews are not dismissed).
 
 No bypass actors anywhere. Rulesets apply to admins unconditionally.
 
