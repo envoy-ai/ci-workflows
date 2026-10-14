@@ -1,0 +1,96 @@
+name: Release notify
+description: >-
+  Posts a production release to Slack. In `release` mode the message carries
+  the release-please changelog that landed with this push: the lines added to
+  CHANGELOG.md between the previous tip of the branch (HEAD^1) and HEAD, so a
+  promotion carrying several releases lists all of them. In `image` mode
+  (rollback, manual dispatch) it names the image tag and skips the changelog.
+  The checkout must have at least `fetch-depth: 2` for `release` mode.
+
+inputs:
+  webhook:
+    description: "Slack incoming-webhook URL for the releases channel"
+    required: true
+  status:
+    description: "Outcome to report: pass `${{ job.status }}` under `if: always()`"
+    required: false
+    default: success
+  environment:
+    description: "Environment name used in the message"
+    required: false
+    default: production
+  mode:
+    description: "`release` (changelog from the push) or `image` (deploy of a named image tag)"
+    required: false
+    default: release
+  image-tag:
+    description: "Image tag deployed, for `image` mode"
+    required: false
+    default: ""
+  headline:
+    description: >-
+      Overrides the success verb phrase after the version, e.g.
+      "submitted to the Chrome Web Store, publishes on Google approval".
+    required: false
+    default: ""
+  manifest-file:
+    description: "Path to .release-please-manifest.json"
+    required: false
+    default: ".release-please-manifest.json"
+  changelog-file:
+    description: "Path to the release-please CHANGELOG"
+    required: false
+    default: "CHANGELOG.md"
+
+runs:
+  using: composite
+  steps:
+    - name: Collect versions and changelog
+      id: collect
+      shell: bash
+      env:
+        MANIFEST: ${{ inputs.manifest-file }}
+        CHANGELOG: ${{ inputs.changelog-file }}
+      run: |
+        version() { jq -r '."."' 2>/dev/null || true; }
+        new=$(version < "$MANIFEST")
+        old=""
+        if git rev-parse --verify -q HEAD^1 >/dev/null; then
+          old=$(git show "HEAD^1:${MANIFEST}" 2>/dev/null | version)
+          git diff HEAD^1 HEAD -- "$CHANGELOG" | grep '^+' | grep -v '^+++' | sed 's/^+//' > "$RUNNER_TEMP/changelog-added.md" || true
+        else
+          echo "::warning::HEAD^1 is not available (checkout fetch-depth < 2); posting without a changelog."
+          : > "$RUNNER_TEMP/changelog-added.md"
+        fi
+        {
+          echo "old_version=${old}"
+          echo "new_version=${new}"
+          echo "commit_subject=$(git log -1 --format=%s)"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Render payload
+      id: render
+      shell: bash
+      env:
+        REPO: ${{ github.repository }}
+        SERVER_URL: ${{ github.server_url }}
+        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        SHA: ${{ github.sha }}
+        MODE: ${{ inputs.mode }}
+        STATUS: ${{ inputs.status }}
+        ENVIRONMENT: ${{ inputs.environment }}
+        IMAGE_TAG: ${{ inputs.image-tag }}
+        HEADLINE: ${{ inputs.headline }}
+        OLD_VERSION: ${{ steps.collect.outputs.old_version }}
+        NEW_VERSION: ${{ steps.collect.outputs.new_version }}
+        COMMIT_SUBJECT: ${{ steps.collect.outputs.commit_subject }}
+        PAYLOAD_PATH: ${{ runner.temp }}/release-notify-payload.json
+      run: |
+        CHANGELOG="$(cat "$RUNNER_TEMP/changelog-added.md")" python3 "${{ github.action_path }}/render.py"
+
+    - name: Post to Slack
+      uses: slackapi/slack-github-action@v2
+      with:
+        webhook: ${{ inputs.webhook }}
+        webhook-type: incoming-webhook
+        payload-file-path: ${{ runner.temp }}/release-notify-payload.json

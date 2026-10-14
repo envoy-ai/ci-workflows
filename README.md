@@ -163,6 +163,42 @@ jobs:
           slack_webhook_url: ${{ secrets.SLACK_WEBHOOK_URL }}
 ```
 
+### `release-notify` (composite action)
+
+Posts a production release to Slack from the workflow that puts it live. Release-please cuts releases on `development`, so a GitHub Release exists long before the code reaches `production`; this action runs at the end of each repo's production deploy instead, and its message is the release-please changelog that landed with that push: the lines added to `CHANGELOG.md` between the previous tip of the branch (`HEAD^1`) and `HEAD`, converted to Slack mrkdwn. A promotion carrying several releases lists all of them. A hotfix merged without a version bump posts the commit subject. Failures post a one-line notice with the run link.
+
+**Caller responsibilities:**
+
+- Check out with `fetch-depth: 2` or more (the changelog diff needs `HEAD^1`).
+- Run it under `if: always()` and pass `status: ${{ job.status }}`, so a failed deploy is announced too.
+- Gate it to production in the caller (`github.ref_name == 'production'`, the resolved environment, …).
+- Pass the channel webhook: the org secret `SLACK_RELEASES_WEBHOOK_URL` (`#releases`). Incoming webhooks are channel-bound, so a different channel is a different webhook and secret.
+
+**Inputs:**
+
+- `webhook` (required): Slack incoming-webhook URL
+- `status` (default `success`): outcome to report
+- `environment` (default `production`): name used in the message
+- `mode` (default `release`): `release` reads the changelog diff; `image` names a deployed image tag and skips it (rollbacks, manual dispatches)
+- `image-tag`: the tag for `image` mode
+- `headline`: replaces the success verb phrase, e.g. `submitted to the Chrome Web Store, publishes on Google approval`
+- `manifest-file` / `changelog-file`: release-please file paths (defaults at the repo root)
+
+**Usage:**
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 2
+# ... deploy steps ...
+- name: Notify #releases
+  if: always() && github.ref_name == 'production'
+  uses: envoy-ai/ci-workflows/.github/actions/release-notify@main
+  with:
+    webhook: ${{ secrets.SLACK_RELEASES_WEBHOOK_URL }}
+    status: ${{ job.status }}
+```
+
 ## PR Title Format
 
 Since all repos use **squash merge** with the PR title as the commit message, only the PR title needs to follow conventional commits. Individual commits inside the PR don't matter.
