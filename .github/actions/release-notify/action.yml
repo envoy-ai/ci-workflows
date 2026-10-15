@@ -12,7 +12,7 @@ inputs:
     description: "Slack incoming-webhook URL for the releases channel"
     required: true
   status:
-    description: "Outcome to report: pass `${{ job.status }}` under `if: always()`"
+    description: "Outcome to report: pass the job status expression (job.status) under `if: always()`"
     required: false
     default: success
   environment:
