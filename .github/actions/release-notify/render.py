@@ -20,23 +20,38 @@ RELEASE_HEADING = re.compile(r"^##\s+\[(?P<version>[^\]]+)\]\([^)]*\)(?:\s+\((?P
 SECTION_HEADING = re.compile(r"^###\s+(.+)")
 BULLET = re.compile(r"^\*\s+(.*)")
 # release-please appends "([<sha>](<commit url>))" to every entry; the PR
-# link right before it is the one people click, so the sha link is dropped.
-COMMIT_LINK = re.compile(r"\s*\(\[[0-9a-f]{7,40}\]\(https?://[^)]+/commit/[^)]+\)\)")
+# link right before it is the one people click, so the sha link is dropped
+# and the sha itself names the entry's author (action.yml resolves it).
+COMMIT_LINK = re.compile(r"\s*\(\[[0-9a-f]{7,40}\]\(https?://[^)]+/commit/(?P<sha>[0-9a-f]{7,40})\)\)")
 BOLD = re.compile(r"\*\*([^*]+)\*\*")
+
+Authors = dict[str, dict[str, str]]
 
 
 def escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def inline(text: str) -> str:
+def author_label(author: dict[str, str], server: str) -> str:
+    """The commit author's name, linked to their GitHub profile when the email resolved to one."""
+    login = author.get("login", "")
+    name = escape(author.get("name", "") or login)
+    if not name:
+        return ""
+    return f"<{server}/{login}|{name}>" if login else name
+
+
+def inline(text: str, authors: Authors, server: str) -> str:
+    commit = COMMIT_LINK.search(text)
     text = COMMIT_LINK.sub("", text)
     text = escape(text)
     text = LINK.sub(lambda m: f"<{m.group(2)}|{m.group(1)}>", text)
-    return BOLD.sub(r"*\1*", text)
+    text = BOLD.sub(r"*\1*", text)
+    label = author_label(authors.get(commit.group("sha"), {}), server) if commit else ""
+    return f"{text}  ·  {label}" if label else text
 
 
-def to_mrkdwn(markdown: str) -> str:
+def to_mrkdwn(markdown: str, authors: Authors, server: str) -> str:
     lines: list[str] = []
     for raw in markdown.splitlines():
         line = raw.rstrip()
@@ -57,9 +72,9 @@ def to_mrkdwn(markdown: str) -> str:
             continue
         bullet = BULLET.match(line)
         if bullet:
-            lines.append(f"•  {inline(bullet.group(1))}")
+            lines.append(f"•  {inline(bullet.group(1), authors, server)}")
             continue
-        lines.append(inline(line))
+        lines.append(inline(line, authors, server))
     return "\n".join(lines)
 
 
@@ -85,6 +100,11 @@ def main() -> None:
     sha = env.get("SHA", "")
     run_url = env["RUN_URL"]
     changelog = env.get("CHANGELOG", "")
+    authors: Authors = {}
+    authors_path = env.get("AUTHORS_PATH", "")
+    if authors_path and os.path.exists(authors_path):
+        with open(authors_path, encoding="utf-8") as fh:
+            authors = json.load(fh)
 
     name = repo.split("/", 1)[1]
     repo_url = f"{server}/{repo}"
@@ -100,7 +120,7 @@ def main() -> None:
     elif old_version and old_version != new_version:
         verb = headline or f"is live in {environment}"
         title = f":rocket: *{name}* v{old_version} → v{new_version} {verb}"
-        body = truncate(to_mrkdwn(changelog), BODY_LIMIT)
+        body = truncate(to_mrkdwn(changelog, authors, server), BODY_LIMIT)
         links.insert(0, f"<{repo_url}/compare/v{old_version}...v{new_version}|Full diff>")
     else:
         # Same version on both sides is a hotfix merged without a release cut.

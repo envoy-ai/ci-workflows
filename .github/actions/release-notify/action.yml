@@ -68,11 +68,33 @@ runs:
           echo "commit_subject=$(git log -1 --format=%s)"
         } >> "$GITHUB_OUTPUT"
 
+    # Every entry release-please writes ends with its squash commit, whose
+    # author is the PR author. The commits API resolves it to a GitHub account
+    # with the job's own token (contents: read is enough), so the Slack post
+    # names who to ask about each line. A lookup that fails posts the entry
+    # without a name rather than failing the notification.
+    - name: Resolve who authored each changelog entry
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        AUTHORS: ${{ runner.temp }}/changelog-authors.json
+      run: |
+        echo '{}' > "$AUTHORS"
+        for sha in $(grep -oE '/commit/[0-9a-f]{40}' "$RUNNER_TEMP/changelog-added.md" | cut -d/ -f3 | sort -u); do
+          if entry=$(gh api "repos/${REPO}/commits/${sha}" --jq '{login: (.author.login // ""), name: (.commit.author.name // "")}'); then
+            jq --arg sha "$sha" --argjson entry "$entry" '. + {($sha): $entry}' "$AUTHORS" > "$AUTHORS.tmp" && mv "$AUTHORS.tmp" "$AUTHORS"
+          else
+            echo "::warning::Could not resolve the author of ${sha}; its entry posts without one."
+          fi
+        done
+
     - name: Render payload
       id: render
       shell: bash
       env:
         REPO: ${{ github.repository }}
+        AUTHORS_PATH: ${{ runner.temp }}/changelog-authors.json
         SERVER_URL: ${{ github.server_url }}
         RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         SHA: ${{ github.sha }}
