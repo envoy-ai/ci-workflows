@@ -105,6 +105,14 @@ jobs:
     uses: envoy-ai/ci-workflows/.github/workflows/reusable-pr-title-check.yml@main
 ```
 
+### `linear-ticket.yml` (organization required workflow)
+
+Fails a PR that names no Linear issue. The issue key (`ENG-1234`) may sit in the branch name (Linear's "Copy git branch name"), the PR title, or the PR body; any one of them is how Linear links the PR to the issue. Exempt: PRs opened by a bot (release-please, the staging promotion, dependabot) and a person's promotion PR whose head is `development`, `staging` or `production`.
+
+It is not a reusable workflow and no repository calls it. The organization ruleset **Default (development) branch protection** requires it through the rule "Require workflows to pass before merging", which runs this file from `main` against every repository's default branch, so a new repository is covered the day it is created. Ruleset workflows run only on `opened`, `synchronize` and `reopened` (event filters are ignored), so a key added to the title or body after the first run is checked on the next push, or on a close and reopen.
+
+The check name is `Linked to a Linear ticket`. Adding a Linear team is the `TEAM_KEYS` constant in the workflow.
+
 ## Actions
 
 ### `claude-implement-ticket` (composite action)
