@@ -173,11 +173,12 @@ jobs:
 
 ### `release-notify` (composite action)
 
-Posts a production release to Slack from the workflow that puts it live. Release-please cuts releases on `development`, so a GitHub Release exists long before the code reaches `production`; this action runs at the end of each repo's production deploy instead, and its message is the release-please changelog that landed with that push: the lines added to `CHANGELOG.md` between the previous tip of the branch (`HEAD^1`) and `HEAD`, converted to Slack mrkdwn. A promotion carrying several releases lists all of them. A hotfix merged without a version bump posts the commit subject. Failures post a one-line notice with the run link.
+Posts a production release to Slack from the workflow that puts it live. Release-please cuts releases on `development`, so a GitHub Release exists long before the code reaches `production`; this action runs at the end of each repo's production deploy instead, and its message is the release-please changelog that landed with that push: the lines added to `CHANGELOG.md` between the previous tip of the branch (`HEAD^1`) and `HEAD`, converted to Slack mrkdwn. A promotion carrying several releases lists all of them. Each entry ends with who shipped it: the author of its squash commit (the PR author), linked to their GitHub profile, resolved through the commits API with the job's token. A hotfix merged without a version bump posts the commit subject. Failures post a one-line notice with the run link.
 
 **Caller responsibilities:**
 
 - Check out with `fetch-depth: 2` or more (the changelog diff needs `HEAD^1`).
+- Give the job `contents: read` (the default), which is what the author lookup needs.
 - Run it under `if: always()` and pass `status: ${{ job.status }}`, so a failed deploy is announced too.
 - Gate it to production in the caller (`github.ref_name == 'production'`, the resolved environment, …).
 - Pass the channel webhook: the org secret `SLACK_RELEASES_WEBHOOK_URL` (`#releases`). Incoming webhooks are channel-bound, so a different channel is a different webhook and secret.
