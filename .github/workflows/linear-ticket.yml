@@ -1,0 +1,63 @@
+name: Linear ticket
+
+# Required on every repository's default branch through the organization
+# ruleset "Default (development) branch protection" (rule: require workflows
+# to pass before merging), so no repository carries a caller file. Ruleset
+# workflows ignore event filters and run only on opened, synchronize and
+# reopened: a key in the branch name passes on the first run, and a key added
+# to the title or body afterwards is picked up on the next push (or a close
+# and reopen).
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  linear-ticket:
+    name: Linked to a Linear ticket
+    runs-on: ubuntu-latest
+    steps:
+      - name: Find a ticket key in the branch name, title or body
+        env:
+          AUTHOR_TYPE: ${{ github.event.pull_request.user.type }}
+          AUTHOR_LOGIN: ${{ github.event.pull_request.user.login }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          # Linear links a PR to an issue when the issue key appears in the
+          # branch name, the title or the body, so the check accepts any of
+          # the three. The key is the Linear team key plus the issue number.
+          TEAM_KEYS='ENG'
+          PATTERN="(^|[^A-Za-z0-9])(${TEAM_KEYS})-[0-9]+([^0-9]|$)"
+
+          # Automation opens PRs that answer to no ticket: release-please's
+          # release PRs and the daily staging promotion (both github-actions),
+          # dependabot. A person's promotion PR has a trunk branch as its head.
+          if [[ "$AUTHOR_TYPE" == "Bot" ]]; then
+            echo "Skipped: opened by $AUTHOR_LOGIN (a bot)."
+            exit 0
+          fi
+          case "$HEAD_REF" in
+            development|staging|production)
+              echo "Skipped: promotion PR from $HEAD_REF."
+              exit 0
+              ;;
+          esac
+
+          found=$(printf '%s\n%s\n%s\n' "$HEAD_REF" "$PR_TITLE" "$PR_BODY" \
+            | grep -oiE "$PATTERN" | grep -oiE "(${TEAM_KEYS})-[0-9]+" | tr '[:lower:]' '[:upper:]' | sort -u | tr '\n' ' ')
+          if [[ -n "$found" ]]; then
+            echo "Linked to ${found% }."
+            exit 0
+          fi
+
+          echo "::error::This PR is not linked to a Linear ticket."
+          echo ""
+          echo "Put the issue key (for example ENG-1234) in one of:"
+          echo "  - the branch name   (Linear's 'Copy git branch name' does this)"
+          echo "  - the PR title      e.g. 'fix(voice): ... (ENG-1234)'"
+          echo "  - the PR body       e.g. 'Closes ENG-1234'"
+          echo ""
+          echo "A title or body edit is checked on the next push, or close and reopen the PR."
+          exit 1
